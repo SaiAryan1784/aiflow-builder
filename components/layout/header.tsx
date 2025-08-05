@@ -4,10 +4,25 @@ import Link from "next/link"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Sparkles, Plus } from "lucide-react"
-import { useFlowActions } from "../../hooks/useFlowActions"
+import useFlowStore from "../../store/useFlowStore"
 
 export function Header() {
-  const { triggerAddNode } = useFlowActions();
+  const { addNode } = useFlowStore();
+  
+  const handleCreateNode = () => {
+    const newNode = {
+      id: `node-${Date.now()}`,
+      type: 'action' as const,
+      position: {
+        x: Math.random() * 500 + 100,
+        y: Math.random() * 300 + 100
+      },
+      data: {
+        label: 'New Node'
+      }
+    };
+    addNode(newNode);
+  };
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center px-4">
@@ -23,7 +38,7 @@ export function Header() {
         {/* Center section with Create Node button */}
         <div className="flex-1 flex justify-center">
           <Button
-            onClick={triggerAddNode}
+            onClick={handleCreateNode}
             className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all duration-200"
             size="sm"
           >
