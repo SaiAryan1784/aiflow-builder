@@ -21,7 +21,7 @@ interface EdgeData {
 const FlowOperationSchema = z.object({
   action: z.enum(['add_node', 'delete_node', 'update_node', 'add_edge', 'delete_edge', 'clear_all']),
   nodeId: z.string().optional(),
-  nodeType: z.enum(['dataSource', 'aiModel', 'action']).optional(),
+  nodeType: z.enum(['action']).optional(), // Only support universal 'action' type
   nodeLabel: z.string().optional(),
   nodePosition: z.object({
     x: z.number(),
@@ -32,7 +32,7 @@ const FlowOperationSchema = z.object({
   edgeId: z.string().optional(),
   updateData: z.object({
     label: z.string().optional(),
-    type: z.enum(['dataSource', 'aiModel', 'action']).optional(),
+    type: z.enum(['action']).optional(), // Only support universal 'action' type
     position: z.object({
       x: z.number(),
       y: z.number(),
@@ -91,8 +91,10 @@ When referencing nodes for connections, you can use:
 You are an AI assistant for a flow builder application. Analyze the user's instruction and determine what action(s) to take.
 ${flowContext}
 
+IMPORTANT: This flow builder uses UNIVERSAL NODES only. All nodes have type "action" regardless of their purpose (data source, AI model, action, etc.). The node's purpose is defined by its LABEL, not its type.
+
 Available actions:
-- add_node: Add a new node (types: dataSource, aiModel, action)
+- add_node: Add a new universal node (always use nodeType: "action")
 - delete_node: Delete an existing node by ID or label
 - update_node: Update an existing node's properties
 - add_edge: Connect two nodes by their IDs or labels
@@ -100,9 +102,9 @@ Available actions:
 - clear_all: Clear the entire flow
 
 Response Types:
-1. SINGLE operation: {{"type": "single", "operation": {{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}}}
+1. SINGLE operation: {{"type": "single", "operation": {{"action": "add_node", "nodeType": "action", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}}}
 
-2. MULTIPLE operations: {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "CSV Reader", "nodePosition": {{"x": 100, "y": 100}}}}, {{"action": "add_node", "nodeType": "aiModel", "nodeLabel": "GPT-4", "nodePosition": {{"x": 300, "y": 100}}}}, {{"action": "add_edge", "sourceId": "CSV Reader", "targetId": "GPT-4"}}]}}
+2. MULTIPLE operations: {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "action", "nodeLabel": "CSV Reader", "nodePosition": {{"x": 100, "y": 100}}}}, {{"action": "add_node", "nodeType": "action", "nodeLabel": "GPT-4", "nodePosition": {{"x": 300, "y": 100}}}}, {{"action": "add_edge", "sourceId": "CSV Reader", "targetId": "GPT-4"}}]}}
 
 3. EXPLAIN flow: {{"type": "explain", "explanation": "This flow reads data from a CSV file, processes it through GPT-4 AI model, and outputs the results. The data flows from the CSV Reader to GPT-4 for natural language processing."}}
 
@@ -111,12 +113,16 @@ Response Types:
 Examples for different user requests:
 
 Single operations:
-- "Add a data source node" → {{"type": "single", "operation": {{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}}}
+- "Add a data source node" → {{"type": "single", "operation": {{"action": "add_node", "nodeType": "action", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}}}
+- "Add dataSource node1" → {{"type": "single", "operation": {{"action": "add_node", "nodeType": "action", "nodeLabel": "node1", "nodePosition": {{"x": 200, "y": 150}}}}}}
+- "Add aiModel node2" → {{"type": "single", "operation": {{"action": "add_node", "nodeType": "action", "nodeLabel": "node2", "nodePosition": {{"x": 350, "y": 150}}}}}}
+- "Add action node3" → {{"type": "single", "operation": {{"action": "add_node", "nodeType": "action", "nodeLabel": "node3", "nodePosition": {{"x": 500, "y": 150}}}}}}
 - "Delete the GPT-4 node" → {{"type": "single", "operation": {{"action": "delete_node", "nodeId": "GPT-4"}}}}
 - "Update node1 label to Processing Engine" → {{"type": "single", "operation": {{"action": "update_node", "nodeId": "node1", "updateData": {{"label": "Processing Engine"}}}}}}
 
 Multiple operations:
-- "Add CSV reader, GPT-4 model and connect them" → {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "CSV Reader", "nodePosition": {{"x": 100, "y": 150}}}}, {{"action": "add_node", "nodeType": "aiModel", "nodeLabel": "GPT-4", "nodePosition": {{"x": 350, "y": 150}}}}, {{"action": "add_edge", "sourceId": "CSV Reader", "targetId": "GPT-4"}}]}}
+- "Add CSV reader, GPT-4 model and connect them" → {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "action", "nodeLabel": "CSV Reader", "nodePosition": {{"x": 100, "y": 150}}}}, {{"action": "add_node", "nodeType": "action", "nodeLabel": "GPT-4", "nodePosition": {{"x": 350, "y": 150}}}}, {{"action": "add_edge", "sourceId": "CSV Reader", "targetId": "GPT-4"}}]}}
+- "Add dataSource 'node1', add aiModel 'node2', add action 'node3'" → {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "action", "nodeLabel": "node1", "nodePosition": {{"x": 100, "y": 150}}}}, {{"action": "add_node", "nodeType": "action", "nodeLabel": "node2", "nodePosition": {{"x": 300, "y": 150}}}}, {{"action": "add_node", "nodeType": "action", "nodeLabel": "node3", "nodePosition": {{"x": 500, "y": 150}}}}]}}
 - "Delete nodes A and B and add new action node" → {{"type": "multiple", "operations": [{{"action": "delete_node", "nodeId": "A"}}, {{"action": "delete_node", "nodeId": "B"}}, {{"action": "add_node", "nodeType": "action", "nodeLabel": "New Action", "nodePosition": {{"x": 200, "y": 200}}}}]}}
 - "Update node1 to Data Reader and node2 to AI Processor" → {{"type": "multiple", "operations": [{{"action": "update_node", "nodeId": "node1", "updateData": {{"label": "Data Reader"}}}}, {{"action": "update_node", "nodeId": "node2", "updateData": {{"label": "AI Processor"}}}}]}}
 - "Update node3 to node6 and node5 to node7" → {{"type": "multiple", "operations": [{{"action": "update_node", "nodeId": "node3", "updateData": {{"label": "node6"}}}}, {{"action": "update_node", "nodeId": "node5", "updateData": {{"label": "node7"}}}}]}}
@@ -124,15 +130,17 @@ Multiple operations:
 Flow explanation:
 - "Explain what this flow does" → {{"type": "explain", "explanation": "This flow creates a data processing pipeline where [detailed explanation based on current nodes and connections]"}}
 
-IMPORTANT RULES:
-1. For multiple operations (like "add 3 nodes", "connect A to B and B to C", "update node1 and node2"), use type: "multiple"
-2. For single operations, use type: "single"
-3. When user mentions multiple nodes with "and" or lists multiple actions, use type: "multiple"
-4. For explanations, analyze the current flow and provide detailed explanation
-5. When connecting nodes, use the exact node IDs or labels from current flow state
-6. For new nodes, space them out appropriately (x: 100-500, y: 100-300)
-7. When updating nodes, only include fields that should be changed in updateData
-8. If user says "update X to Y and A to B", create two separate update_node operations
+CRITICAL RULES:
+1. ALWAYS use "nodeType": "action" for ALL nodes - never use dataSource, aiModel, or any other type
+2. The node's function (data source, AI model, action) is determined by its LABEL, not its type
+3. For multiple operations (like "add 3 nodes", "connect A to B and B to C", "update node1 and node2"), use type: "multiple"
+4. For single operations, use type: "single"
+5. When user mentions multiple nodes with "and" or lists multiple actions, use type: "multiple"
+6. For explanations, analyze the current flow and provide detailed explanation
+7. When connecting nodes, use the exact node IDs or labels from current flow state
+8. For new nodes, space them out appropriately (x: 100-500, y: 100-300)
+9. When updating nodes, only include fields that should be changed in updateData
+10. If user says "update X to Y and A to B", create two separate update_node operations
 
 User instruction: {instruction}
 

@@ -5,22 +5,23 @@ import ReactFlow, {
   MiniMap,
   Controls,
   Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
   Connection,
   Edge,
-  Node,
   BackgroundVariant,
   Panel,
   ReactFlowProvider,
+  NodeChange,
+  EdgeChange,
+  applyNodeChanges,
+  applyEdgeChanges,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import { Node as SimpleNode } from './nodes';
 import { CustomEdge } from './edges';
 import { AIAssistantPanel } from '../layout/ai-assistant-panel';
-import { useFlowActions } from '../../hooks/useFlowActions';
+import FlowControls from './FlowControls';
+import useFlowStore from '../../store/useFlowStore';
 
 // Define node types
 const nodeTypes = {
@@ -32,57 +33,56 @@ const edgeTypes = {
   custom: CustomEdge,
 };
 
-// Example initial nodes
-const initialNodes: Node[] = [
-  {
-    id: '1',
-    type: 'action',
-    data: {
-      label: 'Node 1',
-    },
-    position: { x: 200, y: 150 },
-  },
-  {
-    id: '2',
-    type: 'action',
-    data: {
-      label: 'Node 2',
-    },
-    position: { x: 400, y: 150 },
-  },
-];
-
-const initialEdges: Edge[] = [];
-
 function FlowCanvas() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const { 
+    nodes, 
+    edges, 
+    setNodes, 
+    setEdges, 
+    addEdge: storeAddEdge,
+    pushToHistory
+  } = useFlowStore();
+  
   const [isPanelOpen, setIsPanelOpen] = React.useState(true);
-  const { setAddNodeFunction } = useFlowActions();
 
-  const onConnect = (params: Connection | Edge) => {
-    setEdges((eds) => addEdge({ ...params, type: 'custom' }, eds));
-  };
+  // Handle node changes
+  const onNodesChange = React.useCallback((changes: NodeChange[]) => {
+    // Check if any change ends dragging to push to history
+    const dragEndChange = changes.find(change => 
+      change.type === 'position' && !change.dragging
+    );
+    
+    if (dragEndChange) {
+      pushToHistory();
+    }
 
-  const addNewNode = React.useCallback(() => {
-    const newNode: Node = {
-      id: `node-${Date.now()}`,
-      type: 'action',
-      data: {
-        label: `Node ${nodes.length + 1}`,
-      },
-      position: { 
-        x: Math.random() * 500 + 100, 
-        y: Math.random() * 300 + 100 
-      },
-    };
-    setNodes((nds) => [...nds, newNode]);
-  }, [nodes.length, setNodes]);
+    // Apply changes to nodes
+    const updatedNodes = applyNodeChanges(changes, nodes);
+    setNodes(updatedNodes);
+  }, [nodes, setNodes, pushToHistory]);
 
-  // Register the addNode function with the global store
-  React.useEffect(() => {
-    setAddNodeFunction(addNewNode);
-  }, [addNewNode, setAddNodeFunction]);
+  // Handle edge changes
+  const onEdgesChange = React.useCallback((changes: EdgeChange[]) => {
+    // Check if any change is a removal to push to history
+    const hasRemoval = changes.some(change => change.type === 'remove');
+    
+    if (hasRemoval) {
+      pushToHistory();
+    }
+
+    // Apply changes to edges
+    const updatedEdges = applyEdgeChanges(changes, edges);
+    setEdges(updatedEdges);
+  }, [edges, setEdges, pushToHistory]);
+
+  const onConnect = React.useCallback((params: Connection | Edge) => {
+    const newEdge = {
+      ...params,
+      id: `edge-${params.source}-${params.target}`,
+      type: 'custom'
+    } as Edge;
+    storeAddEdge(newEdge);
+  }, [storeAddEdge]);
 
   const proOptions = { hideAttribution: true };
 
@@ -146,6 +146,8 @@ function FlowCanvas() {
               <div className="text-sm font-medium">AI Flow Builder</div>
             </div>
           </Panel>
+          
+          <FlowControls />
         </ReactFlow>
       </div>
       <AIAssistantPanel isOpen={isPanelOpen} onToggle={() => setIsPanelOpen(!isPanelOpen)} />

@@ -43,7 +43,11 @@ import {
   SelectValue,
 } from '../ui/select';
 
-export default function FlowToolbar() {
+interface FlowToolbarProps {
+  readonly isPanelOpen?: boolean;
+}
+
+export default function FlowToolbar({ isPanelOpen = false }: FlowToolbarProps) {
   const { getNodes, addNodes, setNodes, setEdges, deleteElements } = useReactFlow();
   const [isAddNodeOpen, setIsAddNodeOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -97,13 +101,17 @@ export default function FlowToolbar() {
   };
 
   return (
-    <Panel position="bottom-center" className="mb-4">
+    <Panel position="bottom-center" className="mb-4 ">
       <TooltipProvider>
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
           className="bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-2 flex items-center gap-2"
+          style={{
+            marginRight: isPanelOpen ? '320px' : '0px',
+            transition: 'margin-right 0.3s ease-in-out'
+          }}
         >
           {/* Add Node Dialog */}
           <Dialog open={isAddNodeOpen} onOpenChange={setIsAddNodeOpen}>
@@ -136,9 +144,7 @@ export default function FlowToolbar() {
                       <SelectValue placeholder="Select node type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="dataSource">Data Source</SelectItem>
-                      <SelectItem value="aiModel">AI Model</SelectItem>
-                      <SelectItem value="action">Action</SelectItem>
+                      <SelectItem value="action">Universal Node</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

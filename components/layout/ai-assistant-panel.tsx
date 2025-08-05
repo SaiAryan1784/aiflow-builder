@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useReactFlow } from 'reactflow'
 import { motion, AnimatePresence } from "framer-motion"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -10,6 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
 import { Send, Bot, User, Sparkles, X, MessageSquare, Loader2 } from "lucide-react"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
+import useFlowStore from "@/store/useFlowStore"
 
 interface Message {
   id: string
@@ -46,8 +46,20 @@ interface AIAssistantPanelProps {
   onToggle: () => void
 }
 
-export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
-  const { getNodes, setNodes, getEdges, setEdges, addNodes, deleteElements } = useReactFlow();
+export function AIAssistantPanel({ isOpen, onToggle }: Readonly<AIAssistantPanelProps>) {
+  const { 
+    nodes, 
+    edges, 
+    setNodes, 
+    setEdges, 
+    addNode, 
+    addEdge: storeAddEdge, 
+    updateNode,
+    deleteNode,
+    deleteEdge,
+    reset
+  } = useFlowStore();
+  
   const [messages, setMessages] = React.useState<Message[]>([])
   const [showWelcome, setShowWelcome] = React.useState(true)
   const [input, setInput] = React.useState("")
@@ -62,7 +74,6 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
 
   // Helper function to find node by label or ID
   const findNodeByReference = (reference: string) => {
-    const nodes = getNodes()
     // First try to find by exact ID
     let node = nodes.find(n => n.id === reference)
     if (node) return node
@@ -85,7 +96,6 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
   // Helper function to generate unique but predictable node IDs
   const generateNodeId = (nodeType: string, label: string) => {
     const baseId = `${nodeType}-${label.toLowerCase().replace(/\s+/g, '-')}`
-    const nodes = getNodes()
     let counter = 1
     let finalId = baseId
     
@@ -100,7 +110,6 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
 
   const applyFlowOperation = (operation: FlowOperation) => {
     console.log('Applying operation:', operation)
-    const edges = getEdges()
     
     switch (operation.action) {
       case 'add_node': {
@@ -115,7 +124,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
           }
         }
         console.log('Adding node:', newNode)
-        addNodes(newNode)
+        addNode(newNode)
         break
       }
       case 'update_node': {
@@ -123,24 +132,16 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
           const nodeToUpdate = findNodeByReference(operation.nodeId)
           console.log('Found node to update:', nodeToUpdate, 'with data:', operation.updateData)
           if (nodeToUpdate) {
-            const currentNodes = getNodes()
-            const updatedNodes = currentNodes.map(node => {
-              if (node.id === nodeToUpdate.id) {
-                const updatedNode = {
-                  ...node,
-                  type: operation.updateData?.type || node.type,
-                  position: operation.updateData?.position || node.position,
-                  data: {
-                    ...node.data,
-                    label: operation.updateData?.label || node.data.label
-                  }
-                }
-                console.log('Updated node:', updatedNode)
-                return updatedNode
+            const updates = {
+              type: operation.updateData?.type || nodeToUpdate.type,
+              position: operation.updateData?.position || nodeToUpdate.position,
+              data: {
+                ...nodeToUpdate.data,
+                label: operation.updateData?.label || nodeToUpdate.data.label
               }
-              return node
-            })
-            setNodes(updatedNodes)
+            }
+            console.log('Updated node:', updates)
+            updateNode(nodeToUpdate.id, updates)
           } else {
             console.log('Node not found for ID:', operation.nodeId)
           }
@@ -151,7 +152,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
         if (operation.nodeId) {
           const nodeToDelete = findNodeByReference(operation.nodeId)
           if (nodeToDelete) {
-            deleteElements({ nodes: [nodeToDelete] })
+            deleteNode(nodeToDelete.id)
           }
         }
         break
@@ -173,7 +174,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
                 target: targetNode.id,
                 type: 'custom'
               }
-              setEdges([...edges, newEdge])
+              storeAddEdge(newEdge)
             }
           }
         }
@@ -181,22 +182,24 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
       }
       case 'delete_edge': {
         if (operation.edgeId) {
-          setEdges(edges.filter(e => e.id !== operation.edgeId))
+          deleteEdge(operation.edgeId)
         } else if (operation.sourceId && operation.targetId) {
           const sourceNode = findNodeByReference(operation.sourceId)
           const targetNode = findNodeByReference(operation.targetId)
           
           if (sourceNode && targetNode) {
-            setEdges(edges.filter(e => 
-              !(e.source === sourceNode.id && e.target === targetNode.id)
-            ))
+            const edgeToDelete = edges.find(e => 
+              e.source === sourceNode.id && e.target === targetNode.id
+            )
+            if (edgeToDelete) {
+              deleteEdge(edgeToDelete.id)
+            }
           }
         }
         break
       }
       case 'clear_all': {
-        setNodes([])
-        setEdges([])
+        reset()
         break
       }
     }
@@ -210,8 +213,8 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
       // For multiple operations, we need to batch the updates to avoid state conflicts
       console.log('Processing multiple operations:', flowDiff.operations)
       
-      let currentNodes = getNodes()
-      let currentEdges = getEdges()
+      let currentNodes = [...nodes]
+      let currentEdges = [...edges]
       let hasNodeChanges = false
       let hasEdgeChanges = false
       
@@ -388,11 +391,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
     setIsLoading(true)
 
     // Get current flow state to provide context to AI
-    const currentNodes = getNodes()
-    const currentEdges = getEdges()
-    
-    // Create a simple description of current nodes for the AI
-    const nodeDescriptions = currentNodes.map(node => ({
+    const nodeDescriptions = nodes.map(node => ({
       id: node.id,
       type: node.type,
       label: node.data.label,
@@ -408,7 +407,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
       body: JSON.stringify({ 
         prompt: input,
         currentNodes: nodeDescriptions,
-        currentEdges: currentEdges.map(edge => ({
+        currentEdges: edges.map(edge => ({
           id: edge.id,
           source: edge.source,
           target: edge.target
@@ -539,7 +538,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
                         </div>
                         
                         <p className="text-xs text-muted-foreground">
-                          💡 I can now update nodes, handle multiple operations, and provide detailed flow explanations!
+                          💡 All nodes are universal - their purpose is defined by their label, not type!
                         </p>
                       </div>
                     </Card>
