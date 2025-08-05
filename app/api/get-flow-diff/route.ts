@@ -17,9 +17,9 @@ interface EdgeData {
   target: string;
 }
 
-// Define the schema for flow diff
-const FlowDiffSchema = z.object({
-  action: z.enum(['add_node', 'delete_node', 'update_node', 'add_edge', 'delete_edge', 'clear_all', 'explain']),
+// Define the schema for individual flow operations
+const FlowOperationSchema = z.object({
+  action: z.enum(['add_node', 'delete_node', 'update_node', 'add_edge', 'delete_edge', 'clear_all']),
   nodeId: z.string().optional(),
   nodeType: z.enum(['dataSource', 'aiModel', 'action']).optional(),
   nodeLabel: z.string().optional(),
@@ -30,6 +30,21 @@ const FlowDiffSchema = z.object({
   sourceId: z.string().optional(),
   targetId: z.string().optional(),
   edgeId: z.string().optional(),
+  updateData: z.object({
+    label: z.string().optional(),
+    type: z.enum(['dataSource', 'aiModel', 'action']).optional(),
+    position: z.object({
+      x: z.number(),
+      y: z.number(),
+    }).optional(),
+  }).optional(),
+});
+
+// Define the schema for flow diff (can be single operation or multiple)
+const FlowDiffSchema = z.object({
+  type: z.enum(['single', 'multiple', 'explain']),
+  operations: z.array(FlowOperationSchema).optional(),
+  operation: FlowOperationSchema.optional(),
   explanation: z.string().optional(),
 });
 
@@ -73,37 +88,55 @@ When referencing nodes for connections, you can use:
 
     // Create the prompt template
     const promptTemplate = ChatPromptTemplate.fromTemplate(`
-You are an AI assistant for a flow builder application. Analyze the user's instruction and determine what action to take.
+You are an AI assistant for a flow builder application. Analyze the user's instruction and determine what action(s) to take.
 ${flowContext}
 
 Available actions:
 - add_node: Add a new node (types: dataSource, aiModel, action)
 - delete_node: Delete an existing node by ID or label
+- update_node: Update an existing node's properties
 - add_edge: Connect two nodes by their IDs or labels
 - delete_edge: Remove a connection by edge ID or by source/target references
 - clear_all: Clear the entire flow
-- explain: Explain what the flow does
 
-Examples:
-- "Add a data source node" → {{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}
-- "Add an AI model node called GPT-4" → {{"action": "add_node", "nodeType": "aiModel", "nodeLabel": "GPT-4", "nodePosition": {{"x": 400, "y": 150}}}}
-- "Connect Data Source to GPT-4" → {{"action": "add_edge", "sourceId": "Data Source", "targetId": "GPT-4"}}
-- "Connect node 1 to node 2" → {{"action": "add_edge", "sourceId": "1", "targetId": "2"}}
-- "Delete the GPT-4 node" → {{"action": "delete_node", "nodeId": "GPT-4"}}
-- "Delete node 3" → {{"action": "delete_node", "nodeId": "3"}}
-- "Remove connection between A and B" → {{"action": "delete_edge", "sourceId": "A", "targetId": "B"}}
-- "Clear everything" → {{"action": "clear_all"}}
+Response Types:
+1. SINGLE operation: {{"type": "single", "operation": {{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}}}
+
+2. MULTIPLE operations: {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "CSV Reader", "nodePosition": {{"x": 100, "y": 100}}}}, {{"action": "add_node", "nodeType": "aiModel", "nodeLabel": "GPT-4", "nodePosition": {{"x": 300, "y": 100}}}}, {{"action": "add_edge", "sourceId": "CSV Reader", "targetId": "GPT-4"}}]}}
+
+3. EXPLAIN flow: {{"type": "explain", "explanation": "This flow reads data from a CSV file, processes it through GPT-4 AI model, and outputs the results. The data flows from the CSV Reader to GPT-4 for natural language processing."}}
+
+4. UPDATE node: {{"type": "single", "operation": {{"action": "update_node", "nodeId": "existing-node-id", "updateData": {{"label": "New Label", "position": {{"x": 400, "y": 200}}}}}}}}
+
+Examples for different user requests:
+
+Single operations:
+- "Add a data source node" → {{"type": "single", "operation": {{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "Data Source", "nodePosition": {{"x": 200, "y": 150}}}}}}
+- "Delete the GPT-4 node" → {{"type": "single", "operation": {{"action": "delete_node", "nodeId": "GPT-4"}}}}
+- "Update node1 label to Processing Engine" → {{"type": "single", "operation": {{"action": "update_node", "nodeId": "node1", "updateData": {{"label": "Processing Engine"}}}}}}
+
+Multiple operations:
+- "Add CSV reader, GPT-4 model and connect them" → {{"type": "multiple", "operations": [{{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "CSV Reader", "nodePosition": {{"x": 100, "y": 150}}}}, {{"action": "add_node", "nodeType": "aiModel", "nodeLabel": "GPT-4", "nodePosition": {{"x": 350, "y": 150}}}}, {{"action": "add_edge", "sourceId": "CSV Reader", "targetId": "GPT-4"}}]}}
+- "Delete nodes A and B and add new action node" → {{"type": "multiple", "operations": [{{"action": "delete_node", "nodeId": "A"}}, {{"action": "delete_node", "nodeId": "B"}}, {{"action": "add_node", "nodeType": "action", "nodeLabel": "New Action", "nodePosition": {{"x": 200, "y": 200}}}}]}}
+- "Update node1 to Data Reader and node2 to AI Processor" → {{"type": "multiple", "operations": [{{"action": "update_node", "nodeId": "node1", "updateData": {{"label": "Data Reader"}}}}, {{"action": "update_node", "nodeId": "node2", "updateData": {{"label": "AI Processor"}}}}]}}
+- "Update node3 to node6 and node5 to node7" → {{"type": "multiple", "operations": [{{"action": "update_node", "nodeId": "node3", "updateData": {{"label": "node6"}}}}, {{"action": "update_node", "nodeId": "node5", "updateData": {{"label": "node7"}}}}]}}
+
+Flow explanation:
+- "Explain what this flow does" → {{"type": "explain", "explanation": "This flow creates a data processing pipeline where [detailed explanation based on current nodes and connections]"}}
 
 IMPORTANT RULES:
-1. When connecting nodes, use the exact node IDs or labels provided in the current flow state
-2. If user says "connect A to B", use A as sourceId and B as targetId
-3. You can reference nodes by their ID, label, or type
-4. For new nodes, choose appropriate positions (spread them out)
-5. Respond ONLY with valid JSON - no explanations outside the JSON
+1. For multiple operations (like "add 3 nodes", "connect A to B and B to C", "update node1 and node2"), use type: "multiple"
+2. For single operations, use type: "single"
+3. When user mentions multiple nodes with "and" or lists multiple actions, use type: "multiple"
+4. For explanations, analyze the current flow and provide detailed explanation
+5. When connecting nodes, use the exact node IDs or labels from current flow state
+6. For new nodes, space them out appropriately (x: 100-500, y: 100-300)
+7. When updating nodes, only include fields that should be changed in updateData
+8. If user says "update X to Y and A to B", create two separate update_node operations
 
 User instruction: {instruction}
 
-IMPORTANT: Respond ONLY with a valid JSON object. Do not include any explanation or text outside the JSON. The response must start with {{ and end with }}.
+IMPORTANT: Respond ONLY with valid JSON. No explanations outside the JSON. Start with curly brace and end with curly brace.
 `);
 
     // Execute the chain
@@ -112,7 +145,7 @@ IMPORTANT: Respond ONLY with a valid JSON object. Do not include any explanation
       // First try with the chain
       const formattedPrompt = await promptTemplate.format({ instruction: prompt });
       const rawResponse = await model.invoke(formattedPrompt);
-      const content = typeof rawResponse.content === 'string' ? rawResponse.content : String(rawResponse.content);
+      const content = typeof rawResponse.content === 'string' ? rawResponse.content : JSON.stringify(rawResponse.content);
       
       // Remove content between <think> tags
       let cleanedContent = content;
@@ -149,14 +182,15 @@ IMPORTANT: Respond ONLY with a valid JSON object. Do not include any explanation
         Return ONLY a JSON object for this instruction: "${prompt}"
         
         Examples:
-        - Add node: {"action": "add_node", "nodeType": "dataSource", "nodeLabel": "New Node", "nodePosition": {"x": 300, "y": 200}}
-        - Delete node: {"action": "delete_node", "nodeId": "1"}
-        - Connect nodes: {"action": "add_edge", "sourceId": "1", "targetId": "2"}
+        - Add node: {"type": "single", "operation": {"action": "add_node", "nodeType": "dataSource", "nodeLabel": "New Node", "nodePosition": {"x": 300, "y": 200}}}
+        - Delete node: {"type": "single", "operation": {"action": "delete_node", "nodeId": "1"}}
+        - Connect nodes: {"type": "single", "operation": {"action": "add_edge", "sourceId": "1", "targetId": "2"}}
+        - Multiple operations: {"type": "multiple", "operations": [{"action": "add_node", "nodeType": "dataSource", "nodeLabel": "Node1", "nodePosition": {"x": 100, "y": 100}}, {"action": "add_node", "nodeType": "aiModel", "nodeLabel": "Node2", "nodePosition": {"x": 300, "y": 100}}]}
         
         JSON:
       `);
       
-      const fallbackContent = typeof fallbackResponse.content === 'string' ? fallbackResponse.content : String(fallbackResponse.content);
+      const fallbackContent = typeof fallbackResponse.content === 'string' ? fallbackResponse.content : JSON.stringify(fallbackResponse.content);
       // Remove think tags from fallback too
       const cleanedFallback = fallbackContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
       
@@ -165,7 +199,7 @@ IMPORTANT: Respond ONLY with a valid JSON object. Do not include any explanation
       } catch {
         // Last resort: create a default response
         result = {
-          action: 'explain',
+          type: 'explain',
           explanation: 'I understood your request but had trouble processing it. Please try rephrasing.'
         };
       }
@@ -177,24 +211,83 @@ IMPORTANT: Respond ONLY with a valid JSON object. Do not include any explanation
       
       // Generate a human-readable response
       let response = '';
-      switch (validatedResult.action) {
-        case 'add_node':
-          response = `I'll add a ${validatedResult.nodeType} node labeled "${validatedResult.nodeLabel}" to your flow.`;
-          break;
-        case 'delete_node':
-          response = `I'll delete the node from your flow.`;
-          break;
-        case 'add_edge':
-          response = `I'll connect the nodes for you.`;
-          break;
-        case 'clear_all':
-          response = `I'll clear all nodes and connections from your flow.`;
-          break;
-        case 'explain':
-          response = validatedResult.explanation || 'This flow processes data through various stages.';
-          break;
-        default:
-          response = `I'll ${validatedResult.action.replace('_', ' ')} as requested.`;
+      
+      if (validatedResult.type === 'explain') {
+        // Generate detailed flow explanation
+        if (currentNodes.length === 0) {
+          response = 'Your flow is currently empty. You can start by adding nodes like data sources, AI models, or action nodes to create a processing pipeline.';
+        } else {
+          let explanation = validatedResult.explanation || '';
+          
+          // If no explanation provided by AI, generate one based on flow structure
+          if (!explanation) {
+            const nodeTypes = {
+              dataSource: currentNodes.filter(n => n.type === 'dataSource'),
+              aiModel: currentNodes.filter(n => n.type === 'aiModel'),
+              action: currentNodes.filter(n => n.type === 'action')
+            };
+            
+            explanation = `This flow contains ${currentNodes.length} node(s): `;
+            const typeCounts = [];
+            if (nodeTypes.dataSource.length > 0) typeCounts.push(`${nodeTypes.dataSource.length} data source(s)`);
+            if (nodeTypes.aiModel.length > 0) typeCounts.push(`${nodeTypes.aiModel.length} AI model(s)`);
+            if (nodeTypes.action.length > 0) typeCounts.push(`${nodeTypes.action.length} action(s)`);
+            
+            explanation += typeCounts.join(', ') + '. ';
+            
+            if (currentEdges.length > 0) {
+              explanation += `There are ${currentEdges.length} connection(s) forming a processing pipeline. `;
+              explanation += `The data flows: ${currentEdges.map(edge => {
+                const sourceNode = currentNodes.find(n => n.id === edge.source);
+                const targetNode = currentNodes.find(n => n.id === edge.target);
+                return `${sourceNode?.label || edge.source} → ${targetNode?.label || edge.target}`;
+              }).join(', ')}.`;
+            } else {
+              explanation += 'The nodes are not yet connected. You can connect them to create a data processing pipeline.';
+            }
+          }
+          
+          response = explanation;
+        }
+      } else if (validatedResult.type === 'multiple') {
+        const operations = validatedResult.operations || [];
+        response = `I'll perform ${operations.length} operations: `;
+        const operationDescriptions = operations.map(op => {
+          switch (op.action) {
+            case 'add_node': return `add ${op.nodeType} "${op.nodeLabel}"`;
+            case 'delete_node': return `delete node "${op.nodeId}"`;
+            case 'update_node': return `update node "${op.nodeId}"`;
+            case 'add_edge': return `connect "${op.sourceId}" to "${op.targetId}"`;
+            case 'delete_edge': return `remove connection`;
+            default: return op.action;
+          }
+        });
+        response += operationDescriptions.join(', ') + '.';
+      } else if (validatedResult.type === 'single' && validatedResult.operation) {
+        const op = validatedResult.operation;
+        switch (op.action) {
+          case 'add_node':
+            response = `I'll add a ${op.nodeType} node labeled "${op.nodeLabel}" to your flow.`;
+            break;
+          case 'delete_node':
+            response = `I'll delete the "${op.nodeId}" node from your flow.`;
+            break;
+          case 'update_node':
+            response = `I'll update the "${op.nodeId}" node with the new properties.`;
+            break;
+          case 'add_edge':
+            response = `I'll connect "${op.sourceId}" to "${op.targetId}".`;
+            break;
+          case 'delete_edge':
+            response = `I'll remove the connection.`;
+            break;
+          case 'clear_all':
+            response = `I'll clear all nodes and connections from your flow.`;
+            break;
+          default:
+            response = `I'll perform the requested action.`;
+            break;
+        }
       }
 
       return NextResponse.json({ 

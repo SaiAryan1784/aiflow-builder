@@ -18,7 +18,7 @@ interface Message {
   timestamp: Date
 }
 
-interface FlowDiff {
+interface FlowOperation {
   action: string
   nodeId?: string
   nodeType?: 'dataSource' | 'aiModel' | 'action'
@@ -27,6 +27,17 @@ interface FlowDiff {
   sourceId?: string
   targetId?: string
   edgeId?: string
+  updateData?: {
+    label?: string
+    type?: 'dataSource' | 'aiModel' | 'action'
+    position?: { x: number; y: number }
+  }
+}
+
+interface FlowDiff {
+  type: 'single' | 'multiple' | 'explain'
+  operation?: FlowOperation
+  operations?: FlowOperation[]
   explanation?: string
 }
 
@@ -87,28 +98,58 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
     return finalId
   }
 
-  const applyFlowDiff = (flowDiff: FlowDiff) => {
+  const applyFlowOperation = (operation: FlowOperation) => {
+    console.log('Applying operation:', operation)
     const edges = getEdges()
     
-    switch (flowDiff.action) {
+    switch (operation.action) {
       case 'add_node': {
-        const nodeLabel = flowDiff.nodeLabel || 'New Node'
-        const nodeType = flowDiff.nodeType || 'action'
+        const nodeLabel = operation.nodeLabel || 'New Node'
+        const nodeType = operation.nodeType || 'action'
         const newNode = {
           id: generateNodeId(nodeType, nodeLabel),
           type: nodeType,
-          position: flowDiff.nodePosition || { x: Math.random() * 500 + 100, y: Math.random() * 300 + 100 },
+          position: operation.nodePosition || { x: Math.random() * 500 + 100, y: Math.random() * 300 + 100 },
           data: {
             label: nodeLabel
           }
         }
+        console.log('Adding node:', newNode)
         addNodes(newNode)
         break
       }
+      case 'update_node': {
+        if (operation.nodeId && operation.updateData) {
+          const nodeToUpdate = findNodeByReference(operation.nodeId)
+          console.log('Found node to update:', nodeToUpdate, 'with data:', operation.updateData)
+          if (nodeToUpdate) {
+            const currentNodes = getNodes()
+            const updatedNodes = currentNodes.map(node => {
+              if (node.id === nodeToUpdate.id) {
+                const updatedNode = {
+                  ...node,
+                  type: operation.updateData?.type || node.type,
+                  position: operation.updateData?.position || node.position,
+                  data: {
+                    ...node.data,
+                    label: operation.updateData?.label || node.data.label
+                  }
+                }
+                console.log('Updated node:', updatedNode)
+                return updatedNode
+              }
+              return node
+            })
+            setNodes(updatedNodes)
+          } else {
+            console.log('Node not found for ID:', operation.nodeId)
+          }
+        }
+        break
+      }
       case 'delete_node': {
-        if (flowDiff.nodeId) {
-          // Try to find node by ID or label
-          const nodeToDelete = findNodeByReference(flowDiff.nodeId)
+        if (operation.nodeId) {
+          const nodeToDelete = findNodeByReference(operation.nodeId)
           if (nodeToDelete) {
             deleteElements({ nodes: [nodeToDelete] })
           }
@@ -116,13 +157,11 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
         break
       }
       case 'add_edge': {
-        if (flowDiff.sourceId && flowDiff.targetId) {
-          // Find source and target nodes by reference
-          const sourceNode = findNodeByReference(flowDiff.sourceId)
-          const targetNode = findNodeByReference(flowDiff.targetId)
+        if (operation.sourceId && operation.targetId) {
+          const sourceNode = findNodeByReference(operation.sourceId)
+          const targetNode = findNodeByReference(operation.targetId)
           
           if (sourceNode && targetNode) {
-            // Check if edge already exists
             const existingEdge = edges.find(e => 
               e.source === sourceNode.id && e.target === targetNode.id
             )
@@ -141,12 +180,11 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
         break
       }
       case 'delete_edge': {
-        if (flowDiff.edgeId) {
-          setEdges(edges.filter(e => e.id !== flowDiff.edgeId))
-        } else if (flowDiff.sourceId && flowDiff.targetId) {
-          // Delete edge by source and target references
-          const sourceNode = findNodeByReference(flowDiff.sourceId)
-          const targetNode = findNodeByReference(flowDiff.targetId)
+        if (operation.edgeId) {
+          setEdges(edges.filter(e => e.id !== operation.edgeId))
+        } else if (operation.sourceId && operation.targetId) {
+          const sourceNode = findNodeByReference(operation.sourceId)
+          const targetNode = findNodeByReference(operation.targetId)
           
           if (sourceNode && targetNode) {
             setEdges(edges.filter(e => 
@@ -161,6 +199,172 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
         setEdges([])
         break
       }
+    }
+  }
+
+  const applyFlowDiff = (flowDiff: FlowDiff) => {
+    if (flowDiff.type === 'explain') {
+      // For explain type, no flow changes needed - just the response message
+      return
+    } else if (flowDiff.type === 'multiple' && flowDiff.operations) {
+      // For multiple operations, we need to batch the updates to avoid state conflicts
+      console.log('Processing multiple operations:', flowDiff.operations)
+      
+      let currentNodes = getNodes()
+      let currentEdges = getEdges()
+      let hasNodeChanges = false
+      let hasEdgeChanges = false
+      
+      // Process all operations and collect the changes
+      flowDiff.operations.forEach((operation, index) => {
+        console.log(`Processing operation ${index + 1}:`, operation)
+        
+        switch (operation.action) {
+          case 'add_node': {
+            const nodeLabel = operation.nodeLabel || 'New Node'
+            const nodeType = operation.nodeType || 'action'
+            const newNode = {
+              id: generateNodeId(nodeType, nodeLabel),
+              type: nodeType,
+              position: operation.nodePosition || { x: Math.random() * 500 + 100, y: Math.random() * 300 + 100 },
+              data: {
+                label: nodeLabel
+              }
+            }
+            console.log('Adding node to batch:', newNode)
+            currentNodes = [...currentNodes, newNode]
+            hasNodeChanges = true
+            break
+          }
+          case 'update_node': {
+            if (operation.nodeId && operation.updateData) {
+              const nodeIndex = currentNodes.findIndex(n => 
+                n.id === operation.nodeId || 
+                n.data.label.toLowerCase() === operation.nodeId!.toLowerCase() ||
+                n.data.label.toLowerCase().includes(operation.nodeId!.toLowerCase())
+              )
+              
+              if (nodeIndex !== -1) {
+                console.log(`Updating node at index ${nodeIndex} with:`, operation.updateData)
+                currentNodes = currentNodes.map((node, idx) => {
+                  if (idx === nodeIndex) {
+                    const updatedNode = {
+                      ...node,
+                      type: operation.updateData?.type || node.type,
+                      position: operation.updateData?.position || node.position,
+                      data: {
+                        ...node.data,
+                        label: operation.updateData?.label || node.data.label
+                      }
+                    }
+                    console.log('Node updated in batch:', updatedNode)
+                    return updatedNode
+                  }
+                  return node
+                })
+                hasNodeChanges = true
+              } else {
+                console.log('Node not found for batch update:', operation.nodeId)
+              }
+            }
+            break
+          }
+          case 'delete_node': {
+            if (operation.nodeId) {
+              const nodeToDelete = currentNodes.find(n => 
+                n.id === operation.nodeId || 
+                n.data.label.toLowerCase() === operation.nodeId!.toLowerCase() ||
+                n.data.label.toLowerCase().includes(operation.nodeId!.toLowerCase())
+              )
+              if (nodeToDelete) {
+                currentNodes = currentNodes.filter(n => n.id !== nodeToDelete.id)
+                // Also remove associated edges
+                currentEdges = currentEdges.filter(e => 
+                  e.source !== nodeToDelete.id && e.target !== nodeToDelete.id
+                )
+                hasNodeChanges = true
+                hasEdgeChanges = true
+              }
+            }
+            break
+          }
+          case 'add_edge': {
+            if (operation.sourceId && operation.targetId) {
+              const sourceNode = currentNodes.find(n => 
+                n.id === operation.sourceId || 
+                n.data.label.toLowerCase() === operation.sourceId!.toLowerCase() ||
+                n.data.label.toLowerCase().includes(operation.sourceId!.toLowerCase())
+              )
+              const targetNode = currentNodes.find(n => 
+                n.id === operation.targetId || 
+                n.data.label.toLowerCase() === operation.targetId!.toLowerCase() ||
+                n.data.label.toLowerCase().includes(operation.targetId!.toLowerCase())
+              )
+              
+              if (sourceNode && targetNode) {
+                const existingEdge = currentEdges.find(e => 
+                  e.source === sourceNode.id && e.target === targetNode.id
+                )
+                
+                if (!existingEdge) {
+                  const newEdge = {
+                    id: `edge-${sourceNode.id}-${targetNode.id}`,
+                    source: sourceNode.id,
+                    target: targetNode.id,
+                    type: 'custom'
+                  }
+                  currentEdges = [...currentEdges, newEdge]
+                  hasEdgeChanges = true
+                }
+              }
+            }
+            break
+          }
+          case 'delete_edge': {
+            if (operation.edgeId) {
+              currentEdges = currentEdges.filter(e => e.id !== operation.edgeId)
+              hasEdgeChanges = true
+            } else if (operation.sourceId && operation.targetId) {
+              const sourceNode = currentNodes.find(n => 
+                n.id === operation.sourceId || 
+                n.data.label.toLowerCase() === operation.sourceId!.toLowerCase()
+              )
+              const targetNode = currentNodes.find(n => 
+                n.id === operation.targetId || 
+                n.data.label.toLowerCase() === operation.targetId!.toLowerCase()
+              )
+              
+              if (sourceNode && targetNode) {
+                currentEdges = currentEdges.filter(e => 
+                  !(e.source === sourceNode.id && e.target === targetNode.id)
+                )
+                hasEdgeChanges = true
+              }
+            }
+            break
+          }
+          case 'clear_all': {
+            currentNodes = []
+            currentEdges = []
+            hasNodeChanges = true
+            hasEdgeChanges = true
+            break
+          }
+        }
+      })
+      
+      // Apply all the batched changes at once
+      if (hasNodeChanges) {
+        console.log('Applying batched node changes:', currentNodes)
+        setNodes(currentNodes)
+      }
+      if (hasEdgeChanges) {
+        console.log('Applying batched edge changes:', currentEdges)
+        setEdges(currentEdges)
+      }
+    } else if (flowDiff.type === 'single' && flowDiff.operation) {
+      // Apply single operation
+      applyFlowOperation(flowDiff.operation)
     }
   }
 
@@ -211,6 +415,9 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
         }))
       })
     }).then(res => res.json()).then(data => {
+      // Debug: Log the AI response for troubleshooting
+      console.log('AI Response:', data)
+      
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -222,6 +429,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
       
       // Apply flow changes if there's a diff
       if (data.flowDiff) {
+        console.log('Applying flow diff:', data.flowDiff)
         applyFlowDiff(data.flowDiff)
       }
     }).catch(error => {
@@ -309,11 +517,11 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
                             </li>
                             <li className="flex items-start gap-2">
                               <span className="text-primary mt-1">•</span>
-                              <span>&apos;Connect Data Source to GPT-4&apos;</span>
+                              <span>&apos;Update node1 label to GPT-4&apos;</span>
                             </li>
                             <li className="flex items-start gap-2">
                               <span className="text-primary mt-1">•</span>
-                              <span>&apos;Connect the first node to the second node&apos;</span>
+                              <span>&apos;Add CSV reader, GPT-4 model and connect them&apos;</span>
                             </li>
                             <li className="flex items-start gap-2">
                               <span className="text-primary mt-1">•</span>
@@ -323,11 +531,15 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
                               <span className="text-primary mt-1">•</span>
                               <span>&apos;Explain what this flow does&apos;</span>
                             </li>
+                            <li className="flex items-start gap-2">
+                              <span className="text-primary mt-1">•</span>
+                              <span>&apos;Add 3 nodes and connect them in sequence&apos;</span>
+                            </li>
                           </ul>
                         </div>
                         
                         <p className="text-xs text-muted-foreground">
-                          💡 I can reference nodes by their labels, IDs, or descriptions!
+                          💡 I can now update nodes, handle multiple operations, and provide detailed flow explanations!
                         </p>
                       </div>
                     </Card>
@@ -335,7 +547,7 @@ export function AIAssistantPanel({ isOpen, onToggle }: AIAssistantPanelProps) {
                 )}
                 
                 <AnimatePresence>
-                  {messages.map((message, index) => (
+                  {messages.map((message) => (
                     <motion.div
                       key={message.id}
                       initial={{ opacity: 0, y: 20 }}
