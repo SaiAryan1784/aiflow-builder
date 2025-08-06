@@ -1,16 +1,16 @@
 "use client"
 
 import React, { useState, useEffect } from 'react';
-import { Panel } from 'reactflow';
+import { Panel, useReactFlow } from 'reactflow';
 import { motion } from 'framer-motion';
+import domtoimage from 'dom-to-image-more';
 import { 
   Undo2, 
   Redo2, 
   Save,
   FolderOpen,
-  Download,
-  Upload,
-  Trash2
+  Trash2,
+  Camera
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
@@ -43,17 +43,15 @@ export default function FlowControls() {
     loadFlow,
     deleteFlow,
     getSavedFlows,
-    exportFlow,
-    importFlow,
     reset
   } = useFlowStore();
 
+  const { toObject } = useReactFlow();
+
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [isLoadDialogOpen, setIsLoadDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [flowName, setFlowName] = useState('');
   const [selectedFlowId, setSelectedFlowId] = useState('');
-  const [importData, setImportData] = useState('');
   const [savedFlows, setSavedFlows] = useState(getSavedFlows());
 
   // Refresh saved flows when dialogs open
@@ -112,53 +110,145 @@ export default function FlowControls() {
     }
   };
 
-  const handleExportFlow = () => {
-    const flowData = exportFlow();
-    const blob = new Blob([flowData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `flow-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportFlow = () => {
-    if (importData.trim()) {
-      const success = importFlow(importData.trim());
-      if (success) {
-        setImportData('');
-        setIsImportDialogOpen(false);
-      } else {
-        alert('Invalid flow data. Please check the format and try again.');
+  const handleScreenshot = async () => {
+    try {
+      // Get the React Flow viewport element (the actual canvas area)
+      const reactFlowViewport = document.querySelector('.react-flow__viewport') as HTMLElement;
+      const reactFlowWrapper = document.querySelector('.react-flow') as HTMLElement;
+      
+      if (!reactFlowViewport || !reactFlowWrapper) {
+        throw new Error('Could not find React Flow elements');
       }
+
+      // Detect current theme
+      const isDarkMode = document.documentElement.classList.contains('dark') || 
+                        document.body.classList.contains('dark');
+      
+      const backgroundColor = isDarkMode ? '#0a0a0a' : '#ffffff';
+
+      // Use dom-to-image-more which handles CSS issues better
+      const dataUrl = await domtoimage.toPng(reactFlowWrapper, {
+        quality: 1,
+        bgcolor: backgroundColor,
+        width: reactFlowWrapper.offsetWidth,
+        height: reactFlowWrapper.offsetHeight,
+        style: {
+          backgroundColor: backgroundColor,
+          border: 'none !important',
+          outline: 'none !important',
+          boxShadow: 'none !important',
+          borderRadius: '0px !important',
+        },
+        filter: (node: Node) => {
+          // Skip problematic elements and borders
+          if (node instanceof Element) {
+            const classList = node.classList;
+            const tagName = node.tagName.toLowerCase();
+            
+            // Skip these elements to remove borders and UI elements
+            return !classList.contains('react-flow__controls') &&
+                   !classList.contains('react-flow__minimap') &&
+                   !classList.contains('react-flow__attribution') &&
+                   !classList.contains('react-flow__panel') &&
+                   !classList.contains('react-flow__renderer') &&
+                   !classList.contains('react-flow__background') &&
+                   tagName !== 'style' &&
+                   tagName !== 'script' &&
+                   // Don't filter out the viewport or nodes/edges
+                   (classList.contains('react-flow__viewport') ||
+                    classList.contains('react-flow__node') ||
+                    classList.contains('react-flow__edge') ||
+                    node.closest('.react-flow__viewport') !== null ||
+                    // Skip any element with border or outline styles
+                    (!node.getAttribute('style')?.includes('border') &&
+                     !node.getAttribute('style')?.includes('outline')));
+          }
+          return true;
+        },
+        // Override CSS to remove borders
+        cacheBust: true,
+      });
+
+      // Convert data URL to blob and download
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ai-flow-${isDarkMode ? 'dark' : 'light'}-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error('Screenshot failed:', error);
+      handleScreenshotFallback();
     }
   };
 
-  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        if (content) {
-          setImportData(content);
+  const handleScreenshotFallback = () => {
+    try {
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) throw new Error('Could not get canvas context');
+
+      canvas.width = 1200;
+      canvas.height = 800;
+
+      // Set theme-appropriate background
+      ctx.fillStyle = isDarkMode ? '#0a0a0a' : '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Add title
+      ctx.fillStyle = isDarkMode ? '#ffffff' : '#000000';
+      ctx.font = 'bold 28px Arial, sans-serif';
+      ctx.fillText('AI Flow Builder', 30, 50);
+      
+      // Add metadata
+      ctx.font = '16px Arial, sans-serif';
+      ctx.fillStyle = isDarkMode ? '#a1a1aa' : '#71717a';
+      ctx.fillText(`Generated: ${new Date().toLocaleString()}`, 30, 80);
+      ctx.fillText(`Theme: ${isDarkMode ? 'Dark' : 'Light'} Mode`, 30, 105);
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `flow-fallback-${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
         }
-      };
-      reader.readAsText(file);
+      }, 'image/png');
+    } catch {
+      // Final fallback: export as JSON
+      const flowData = toObject();
+      const blob = new Blob([JSON.stringify(flowData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `flow-data-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
   };
 
   return (
-    <Panel position="bottom-center" className="mb-4" style={{ zIndex: 1000 }}>
+    <Panel position="bottom-center" className="mb-4">
       <TooltipProvider>
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className="bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-2 flex items-center gap-2"
+          className="bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-3 flex items-center gap-2"
           style={{
             transform: 'translateX(-50%)',
             left: '50%',
@@ -205,9 +295,9 @@ export default function FlowControls() {
 
           {/* Save Flow */}
           <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-            <DialogTrigger asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
                   <Button
                     variant="outline"
                     size="icon"
@@ -215,12 +305,12 @@ export default function FlowControls() {
                   >
                     <Save className="h-4 w-4" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Save Flow (Ctrl+S)</p>
-                </TooltipContent>
-              </Tooltip>
-            </DialogTrigger>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Save Flow (Ctrl+S)</p>
+              </TooltipContent>
+            </Tooltip>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Save Flow</DialogTitle>
@@ -256,9 +346,9 @@ export default function FlowControls() {
 
           {/* Load Flow */}
           <Dialog open={isLoadDialogOpen} onOpenChange={setIsLoadDialogOpen}>
-            <DialogTrigger asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
                   <Button
                     variant="outline"
                     size="icon"
@@ -266,12 +356,12 @@ export default function FlowControls() {
                   >
                     <FolderOpen className="h-4 w-4" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Load Flow</p>
-                </TooltipContent>
-              </Tooltip>
-            </DialogTrigger>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Load Flow</p>
+              </TooltipContent>
+            </Tooltip>
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Load Flow</DialogTitle>
@@ -332,79 +422,22 @@ export default function FlowControls() {
             </DialogContent>
           </Dialog>
 
-          {/* Export Flow */}
+          {/* Screenshot */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="outline"
                 size="icon"
-                onClick={handleExportFlow}
+                onClick={handleScreenshot}
                 className="transition-all hover:scale-110"
               >
-                <Download className="h-4 w-4" />
+                <Camera className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Export Flow</p>
+              <p>Take Screenshot</p>
             </TooltipContent>
           </Tooltip>
-
-          {/* Import Flow */}
-          <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-            <DialogTrigger asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="transition-all hover:scale-110"
-                  >
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Import Flow</p>
-                </TooltipContent>
-              </Tooltip>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Import Flow</DialogTitle>
-                <DialogDescription>
-                  Import a flow from a JSON file or paste the data directly.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="file-import">Import from file</Label>
-                  <Input
-                    id="file-import"
-                    type="file"
-                    accept=".json"
-                    onChange={handleFileImport}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="import-data">Or paste flow data</Label>
-                  <textarea
-                    id="import-data"
-                    value={importData}
-                    onChange={(e) => setImportData(e.target.value)}
-                    className="w-full h-32 p-2 text-sm border rounded-md resize-none"
-                    placeholder="Paste your flow JSON data here..."
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsImportDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleImportFlow} disabled={!importData.trim()}>
-                  Import Flow
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
 
           <div className="w-px h-6 bg-border mx-1" />
 
