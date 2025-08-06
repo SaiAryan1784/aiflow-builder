@@ -165,8 +165,6 @@ export default function FlowControls() {
           }
           return true;
         },
-        // Override CSS to remove borders
-        cacheBust: true,
       });
 
       // Convert data URL to blob and download
